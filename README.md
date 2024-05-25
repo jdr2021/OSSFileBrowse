@@ -35,7 +35,7 @@
 修改`kkFileView_URL`的值，即可将`kkFileView`修改成自己的kkfileview。
 默认是使用官方的`kkfileview`地址。
 
-<img src="./images/5.png">
+<img src="./images/img.png">
 
 
 # 最后
