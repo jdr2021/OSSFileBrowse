@@ -28,7 +28,7 @@ public class main extends Application {
             InputStream iconStream = getClass().getResourceAsStream("/images/logo.png");
             Image icon = new Image(iconStream);
             primaryStage.getIcons().add(icon);
-            primaryStage.setTitle(" 存储桶遍历漏洞工具-20240524-jdr2021");
+            primaryStage.setTitle(" 存储桶遍历漏洞工具-20240725-jdr2021");
             primaryStage.setScene(scene);
             primaryStage.setResizable(false);
             primaryStage.show();
