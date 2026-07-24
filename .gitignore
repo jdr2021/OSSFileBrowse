@@ -1,1 +1,4 @@
- .idea/
+.idea/
+/target/
+/logs/
+/config.properties

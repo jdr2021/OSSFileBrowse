@@ -2,11 +2,20 @@
 
 <?import javafx.geometry.Insets?>
 <?import javafx.scene.control.Button?>
+<?import javafx.scene.control.CheckBox?>
+<?import javafx.scene.control.ComboBox?>
 <?import javafx.scene.control.Label?>
+<?import javafx.scene.control.Slider?>
 <?import javafx.scene.control.TextField?>
-<?import javafx.scene.control.TreeView?>
+<?import javafx.scene.control.TreeTableColumn?>
+<?import javafx.scene.control.TreeTableView?>
 <?import javafx.scene.layout.HBox?>
+<?import javafx.scene.layout.Priority?>
+<?import javafx.scene.layout.StackPane?>
 <?import javafx.scene.layout.VBox?>
+<?import javafx.scene.image.ImageView?>
+<?import javafx.scene.media.MediaView?>
+<?import javafx.scene.shape.SVGPath?>
 <?import javafx.scene.text.Font?>
 <?import javafx.scene.web.WebView?>
 
@@ -14,32 +23,73 @@
    <children>
       <VBox prefHeight="800.0" prefWidth="400.0">
          <children>
-            <TreeView fx:id="treeView" prefHeight="800.0" prefWidth="400.0" />
+            <HBox alignment="CENTER_LEFT" minHeight="42.0" prefHeight="42.0" spacing="6.0" style="-fx-background-color: #eef3f8; -fx-padding: 4 6;">
+               <children>
+                  <Button fx:id="settingsButton" mnemonicParsing="false" onAction="#ShowSettings" prefHeight="34.0" prefWidth="68.0" style="-fx-font-weight: bold; -fx-text-fill: #17324d;" text="设置" />
+                  <ComboBox fx:id="fileTypeFilterComboBox" disable="true" maxWidth="Infinity" minHeight="34.0" prefHeight="34.0" prefWidth="146.0" promptText="文件类型（后缀 / 数量）" style="-fx-background-color: white; -fx-border-color: #9fb3c8; -fx-border-radius: 3; -fx-padding: 1 3;">
+                     <HBox.hgrow>
+                        <Priority fx:constant="ALWAYS" />
+                     </HBox.hgrow>
+                  </ComboBox>
+                  <TextField fx:id="fileNameSearchField" disable="true" minHeight="34.0" prefHeight="34.0" prefWidth="108.0" promptText="模糊搜索文件名" />
+                  <Button fx:id="fileNameSearchButton" disable="true" minHeight="34.0" minWidth="34.0" mnemonicParsing="false" onAction="#ApplyFileNameSearch" prefHeight="34.0" prefWidth="34.0" text="">
+                     <graphic>
+                        <SVGPath content="M9.5 3a6.5 6.5 0 1 0 3.98 11.64L19.85 21 21 19.85l-6.36-6.37A6.5 6.5 0 0 0 9.5 3zm0 2a4.5 4.5 0 1 1 0 9 4.5 4.5 0 0 1 0-9z" fill="#17324d" />
+                     </graphic>
+                  </Button>
+                </children>
+             </HBox>
+            <TreeTableView fx:id="treeView" prefHeight="712.0" prefWidth="400.0" tableMenuButtonVisible="false">
+               <columns>
+                  <TreeTableColumn fx:id="pathColumn" editable="false" minWidth="180.0" prefWidth="292.0" sortable="true" text="路径名称" />
+                  <TreeTableColumn fx:id="sizeColumn" editable="false" maxWidth="104.0" minWidth="96.0" prefWidth="104.0" sortable="true" text="文件大小" />
+               </columns>
+               <VBox.vgrow>
+                  <Priority fx:constant="ALWAYS" />
+               </VBox.vgrow>
+            </TreeTableView>
+            <Label fx:id="previewStatusLabel" alignment="CENTER_LEFT" minHeight="46.0" prefHeight="46.0" prefWidth="400.0" style="-fx-background-color: #eef3f8; -fx-border-color: #c4ced8; -fx-border-width: 1 0 0 0; -fx-padding: 6 10;" text="2.0 本机预览服务" textFill="#17324d" wrapText="true">
+               <font>
+                  <Font size="13.0" />
+               </font>
+            </Label>
          </children>
       </VBox>
       <VBox prefHeight="800.0" prefWidth="800.0">
+         <HBox.hgrow>
+            <Priority fx:constant="ALWAYS" />
+         </HBox.hgrow>
          <children>
-            <WebView fx:id="webView" prefHeight="800.0" />
+            <StackPane prefHeight="800.0" prefWidth="800.0">
+               <children>
+                  <WebView fx:id="webView" prefHeight="800.0" prefWidth="800.0" />
+                  <VBox fx:id="mediaContainer" alignment="CENTER" managed="false" spacing="8.0" style="-fx-background-color: #111820; -fx-padding: 10;" visible="false">
+                     <children>
+                        <Label fx:id="mediaTitleLabel" text="媒体预览" textFill="WHITE">
+                           <font>
+                              <Font size="16.0" />
+                           </font>
+                        </Label>
+                        <ImageView fx:id="javaCvImageView" fitHeight="700.0" fitWidth="780.0" managed="false" preserveRatio="true" smooth="true" visible="false" />
+                        <MediaView fx:id="mediaView" fitHeight="700.0" fitWidth="780.0" preserveRatio="true" />
+                        <HBox alignment="CENTER" spacing="8.0">
+                           <children>
+                              <Button fx:id="mediaPlayPauseButton" mnemonicParsing="false" onAction="#ToggleMediaPlayback" text="播放" />
+                              <Slider fx:id="mediaProgressSlider" blockIncrement="5.0" max="1.0" prefWidth="560.0" />
+                              <Label fx:id="mediaTimeLabel" prefWidth="120.0" text="00:00 / 00:00" textFill="WHITE" />
+                           </children>
+                        </HBox>
+                     </children>
+                  </VBox>
+               </children>
+            </StackPane>
          </children>
       </VBox>
       <VBox prefHeight="800.0" prefWidth="200.0">
          <children>
-            <Label prefHeight="30.0" prefWidth="180.0" text="kkFileView" textAlignment="RIGHT" textFill="#e12020">
-               <VBox.margin>
-                  <Insets left="10.0" top="80.0" />
-               </VBox.margin>
-               <font>
-                  <Font size="18.0" />
-               </font>
-            </Label>
-            <TextField fx:id="tf_kkfileview_url">
-               <VBox.margin>
-                  <Insets left="10.0" right="10.0" top="10.0" />
-               </VBox.margin>
-            </TextField>
             <Label prefHeight="30.0" prefWidth="100.0" text="存储桶地址" textFill="#d70b0b">
                <VBox.margin>
-                  <Insets left="10.0" top="10.0" />
+                  <Insets left="10.0" top="36.0" />
                </VBox.margin>
                <font>
                   <Font size="18.0" />
@@ -50,17 +100,63 @@
                   <Insets left="10.0" right="10.0" top="10.0" />
                </VBox.margin>
             </TextField>
-            <Button mnemonicParsing="false" onAction="#Loading" prefHeight="40.0" prefWidth="150.0" text="加载">
+            <Button mnemonicParsing="false" onAction="#addCustomHeaderRow" prefHeight="30.0" prefWidth="180.0" text="添加自定义请求头">
                <VBox.margin>
-                  <Insets left="10.0" top="20.0" />
+                  <Insets left="10.0" right="10.0" top="8.0" />
                </VBox.margin>
             </Button>
-            <Button mnemonicParsing="false" onAction="#PreviousFile" prefHeight="40.0" prefWidth="150.0" text="上一个">
+            <VBox fx:id="customHeadersBox" spacing="5.0">
+               <VBox.margin>
+                  <Insets left="10.0" right="10.0" top="5.0" />
+               </VBox.margin>
+            </VBox>
+            <Label prefHeight="24.0" text="内容搜索" textFill="#d70b0b">
+               <VBox.margin>
+                  <Insets left="10.0" top="14.0" />
+               </VBox.margin>
+               <font>
+                  <Font size="15.0" />
+               </font>
+            </Label>
+            <HBox alignment="CENTER_LEFT" spacing="5.0">
+               <children>
+                  <TextField fx:id="searchRegexField" maxWidth="Infinity" prefWidth="118.0" promptText="正则 / 域名 / IP">
+                     <HBox.hgrow>
+                        <Priority fx:constant="ALWAYS" />
+                     </HBox.hgrow>
+                  </TextField>
+                  <CheckBox fx:id="includeRulesCheckBox" mnemonicParsing="false" selected="true" text="规则" />
+               </children>
+               <VBox.margin>
+                  <Insets left="10.0" right="10.0" top="5.0" />
+               </VBox.margin>
+            </HBox>
+            <Button fx:id="searchButton" disable="true" mnemonicParsing="false" onAction="#SearchFiles" prefHeight="34.0" prefWidth="180.0" style="-fx-font-weight: bold;" text="搜索并生成 HTML">
+               <VBox.margin>
+                  <Insets left="10.0" right="10.0" top="6.0" />
+               </VBox.margin>
+            </Button>
+            <Button fx:id="loadButton" mnemonicParsing="false" onAction="#Loading" prefHeight="40.0" prefWidth="180.0" text="加载">
+               <VBox.margin>
+                  <Insets left="10.0" top="14.0" />
+               </VBox.margin>
+            </Button>
+            <Button mnemonicParsing="false" onAction="#PreviousFile" prefHeight="40.0" prefWidth="180.0" text="上一个">
                <VBox.margin>
                   <Insets left="10.0" top="10.0" />
                </VBox.margin>
             </Button>
-            <Button mnemonicParsing="false" onAction="#NextFile" prefHeight="40.0" prefWidth="150.0" text="下一个">
+            <Button mnemonicParsing="false" onAction="#NextFile" prefHeight="40.0" prefWidth="180.0" text="下一个">
+               <VBox.margin>
+                  <Insets left="10.0" top="10.0" />
+               </VBox.margin>
+            </Button>
+            <Button fx:id="downloadButton" mnemonicParsing="false" onAction="#DownloadSelected" prefHeight="40.0" prefWidth="180.0" text="下载选中文件">
+               <VBox.margin>
+                  <Insets left="10.0" top="10.0" />
+               </VBox.margin>
+            </Button>
+            <Button fx:id="downloadAllButton" disable="true" mnemonicParsing="false" onAction="#DownloadAll" prefHeight="40.0" prefWidth="180.0" style="-fx-font-weight: bold; -fx-text-fill: #ffffff; -fx-background-color: #087dab;" text="全部下载">
                <VBox.margin>
                   <Insets left="10.0" top="10.0" />
                </VBox.margin>

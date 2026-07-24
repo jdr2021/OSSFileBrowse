@@ -6,32 +6,324 @@
 
     <groupId>net.jdr2021</groupId>
     <artifactId>OSSFileBrowse</artifactId>
-    <version>1.1-SNAPSHOT</version>
+    <version>2.0</version>
+    <name>OSSFileBrowse</name>
+    <description>JavaFX OSS/S3 remote file browser and memory preview tool</description>
 
     <properties>
         <maven.compiler.source>8</maven.compiler.source>
         <maven.compiler.target>8</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <pdfbox.version>2.0.37</pdfbox.version>
+        <commons-compress.version>1.28.0</commons-compress.version>
+        <javacv.version>1.5.13</javacv.version>
+        <!--
+          The release JAR contains native FFmpeg code for one OS/architecture.
+          Windows x64 remains the no-profile default for compatibility; the
+          release profiles below override this value for Linux and macOS.
+        -->
+        <javacpp.platform>windows-x86_64</javacpp.platform>
+        <excluded.platform.1>linux-x86_64</excluded.platform.1>
+        <excluded.platform.2>linux-arm64</excluded.platform.2>
+        <excluded.platform.3>macosx-x86_64</excluded.platform.3>
+        <excluded.platform.4>macosx-arm64</excluded.platform.4>
+        <junit.version>4.13.2</junit.version>
     </properties>
+    <dependencies>
+        <!-- PDFBox is intentionally the only document renderer with a native-quality
+             in-process implementation. It renders from byte[] and never materializes
+             the source file. -->
+        <dependency>
+            <groupId>org.apache.pdfbox</groupId>
+            <artifactId>pdfbox</artifactId>
+            <version>${pdfbox.version}</version>
+        </dependency>
+        <!-- ZIP/JAR/TAR/7z/GZIP readers. -->
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-compress</artifactId>
+            <version>${commons-compress.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.tukaani</groupId>
+            <artifactId>xz</artifactId>
+            <version>1.10</version>
+        </dependency>
+        <!-- RAR directory reader. Accessed through a narrow adapter so upgrades stay
+             isolated from the renderer SPI. -->
+        <dependency>
+            <groupId>com.github.junrar</groupId>
+            <artifactId>junrar</artifactId>
+            <version>7.6.1</version>
+        </dependency>
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-nop</artifactId>
+            <version>2.0.17</version>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.poi</groupId>
+            <artifactId>poi-scratchpad</artifactId>
+            <version>5.5.1</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-to-slf4j</artifactId>
+            <version>2.24.3</version>
+        </dependency>
+        <dependency>
+            <groupId>org.yaml</groupId>
+            <artifactId>snakeyaml</artifactId>
+            <version>2.2</version>
+        </dependency>
+        <!-- One dependency supplies JavaCV, FFmpeg and their native runtimes.
+             JavaCV is the primary media decoder; JavaFX remains a runtime
+             fallback when native initialization fails. -->
+        <dependency>
+            <groupId>org.bytedeco</groupId>
+            <artifactId>javacv-platform</artifactId>
+            <version>${javacv.version}</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.bytedeco</groupId>
+                    <artifactId>openblas-platform</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.bytedeco</groupId>
+                    <artifactId>opencv-platform</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.bytedeco</groupId>
+                    <artifactId>flycapture-platform</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.bytedeco</groupId>
+                    <artifactId>libdc1394-platform</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.bytedeco</groupId>
+                    <artifactId>libfreenect-platform</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.bytedeco</groupId>
+                    <artifactId>libfreenect2-platform</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.bytedeco</groupId>
+                    <artifactId>librealsense-platform</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.bytedeco</groupId>
+                    <artifactId>librealsense2-platform</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.bytedeco</groupId>
+                    <artifactId>videoinput-platform</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.bytedeco</groupId>
+                    <artifactId>artoolkitplus-platform</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.bytedeco</groupId>
+                    <artifactId>leptonica-platform</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.bytedeco</groupId>
+                    <artifactId>tesseract-platform</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>junit</groupId>
+            <artifactId>junit</artifactId>
+            <version>${junit.version}</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+    <profiles>
+        <profile>
+            <id>windows-x86_64</id>
+            <properties>
+                <javacpp.platform>windows-x86_64</javacpp.platform>
+                <excluded.platform.1>linux-x86_64</excluded.platform.1>
+                <excluded.platform.2>linux-arm64</excluded.platform.2>
+                <excluded.platform.3>macosx-x86_64</excluded.platform.3>
+                <excluded.platform.4>macosx-arm64</excluded.platform.4>
+            </properties>
+        </profile>
+        <profile>
+            <id>linux-x86_64</id>
+            <properties>
+                <javacpp.platform>linux-x86_64</javacpp.platform>
+                <excluded.platform.1>windows-x86_64</excluded.platform.1>
+                <excluded.platform.2>linux-arm64</excluded.platform.2>
+                <excluded.platform.3>macosx-x86_64</excluded.platform.3>
+                <excluded.platform.4>macosx-arm64</excluded.platform.4>
+            </properties>
+        </profile>
+        <profile>
+            <id>linux-arm64</id>
+            <properties>
+                <javacpp.platform>linux-arm64</javacpp.platform>
+                <excluded.platform.1>windows-x86_64</excluded.platform.1>
+                <excluded.platform.2>linux-x86_64</excluded.platform.2>
+                <excluded.platform.3>macosx-x86_64</excluded.platform.3>
+                <excluded.platform.4>macosx-arm64</excluded.platform.4>
+            </properties>
+        </profile>
+        <profile>
+            <id>macosx-x86_64</id>
+            <properties>
+                <javacpp.platform>macosx-x86_64</javacpp.platform>
+                <excluded.platform.1>windows-x86_64</excluded.platform.1>
+                <excluded.platform.2>linux-x86_64</excluded.platform.2>
+                <excluded.platform.3>linux-arm64</excluded.platform.3>
+                <excluded.platform.4>macosx-arm64</excluded.platform.4>
+            </properties>
+        </profile>
+        <profile>
+            <id>macosx-arm64</id>
+            <properties>
+                <javacpp.platform>macosx-arm64</javacpp.platform>
+                <excluded.platform.1>windows-x86_64</excluded.platform.1>
+                <excluded.platform.2>linux-x86_64</excluded.platform.2>
+                <excluded.platform.3>linux-arm64</excluded.platform.3>
+                <excluded.platform.4>macosx-x86_64</excluded.platform.4>
+            </properties>
+        </profile>
+    </profiles>
     <build>
+        <finalName>OSSFileBrowse-${project.version}-${javacpp.platform}</finalName>
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.11.0</version>
+                <configuration>
+                    <encoding>UTF-8</encoding>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-jar-plugin</artifactId>
+                <version>3.3.0</version>
                 <configuration>
                     <archive>
                         <manifest>
-                            <addClasspath>true</addClasspath>
                             <mainClass>net.jdr2021.main</mainClass>
                         </manifest>
                     </archive>
                 </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>2.22.2</version>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-shade-plugin</artifactId>
+                <version>3.5.3</version>
+                <executions>
+                    <execution>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>shade</goal>
+                        </goals>
+                        <configuration>
+                            <createDependencyReducedPom>false</createDependencyReducedPom>
+                            <!-- javacv-platform remains the single declared
+                                 media dependency. Profiles name the selected
+                                 classifier; the resource filters below ensure
+                                 each shaded release keeps that platform only. -->
+                            <artifactSet>
+                                <excludes>
+                                    <exclude>org.bytedeco:openblas*</exclude>
+                                    <exclude>org.bytedeco:opencv*</exclude>
+                                    <exclude>org.bytedeco:flycapture*</exclude>
+                                    <exclude>org.bytedeco:libdc1394*</exclude>
+                                    <exclude>org.bytedeco:libfreenect*</exclude>
+                                    <exclude>org.bytedeco:libfreenect2*</exclude>
+                                    <exclude>org.bytedeco:librealsense*</exclude>
+                                    <exclude>org.bytedeco:librealsense2*</exclude>
+                                    <exclude>org.bytedeco:videoinput*</exclude>
+                                    <exclude>org.bytedeco:artoolkitplus*</exclude>
+                                    <exclude>org.bytedeco:leptonica*</exclude>
+                                    <exclude>org.bytedeco:tesseract*</exclude>
+                                </excludes>
+                            </artifactSet>
+                            <filters>
+                                <filter>
+                                    <artifact>*:*</artifact>
+                                    <excludes>
+                                        <exclude>META-INF/*.SF</exclude>
+                                        <exclude>META-INF/*.DSA</exclude>
+                                        <exclude>META-INF/*.RSA</exclude>
+                                        <!-- javacv-platform exposes every
+                                             native classifier when the
+                                             platform property comes from a
+                                             Maven profile. Keep one release
+                                             platform in the shaded output. -->
+                                        <exclude>org/bytedeco/*/android-*/**</exclude>
+                                        <!-- Android classifiers store ELF
+                                             files under lib/<abi> instead of
+                                             org/bytedeco/<module>/<platform>. -->
+                                        <exclude>lib/**</exclude>
+                                        <exclude>org/bytedeco/*/ios-*/**</exclude>
+                                        <exclude>org/bytedeco/*/linux-ppc64le/**</exclude>
+                                        <exclude>org/bytedeco/*/linux-riscv64/**</exclude>
+                                        <exclude>org/bytedeco/*/windows-arm64/**</exclude>
+                                        <exclude>org/bytedeco/*/${excluded.platform.1}/**</exclude>
+                                        <exclude>org/bytedeco/*/${excluded.platform.2}/**</exclude>
+                                        <exclude>org/bytedeco/*/${excluded.platform.3}/**</exclude>
+                                        <exclude>org/bytedeco/*/${excluded.platform.4}/**</exclude>
+                                        <exclude>META-INF/native-image/android-*/**</exclude>
+                                        <exclude>META-INF/native-image/ios-*/**</exclude>
+                                        <exclude>META-INF/native-image/linux-ppc64le/**</exclude>
+                                        <exclude>META-INF/native-image/linux-riscv64/**</exclude>
+                                        <exclude>META-INF/native-image/windows-arm64/**</exclude>
+                                        <exclude>META-INF/native-image/${excluded.platform.1}/**</exclude>
+                                        <exclude>META-INF/native-image/${excluded.platform.2}/**</exclude>
+                                        <exclude>META-INF/native-image/${excluded.platform.3}/**</exclude>
+                                        <exclude>META-INF/native-image/${excluded.platform.4}/**</exclude>
+                                        <!-- The player calls FFmpeg through
+                                             JNI. FFmpegFrameGrabber loads the
+                                             avdevice and avfilter modules
+                                             during initialization, so every
+                                             JNI module stays in the JAR. Only
+                                             command-line programs are omitted. -->
+                                        <exclude>org/bytedeco/ffmpeg/${javacpp.platform}/ffmpeg*</exclude>
+                                        <exclude>org/bytedeco/ffmpeg/${javacpp.platform}/ffprobe*</exclude>
+                                    </excludes>
+                                </filter>
+                            </filters>
+                            <transformers>
+                                <transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer" />
+                                <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
+                                    <mainClass>net.jdr2021.main</mainClass>
+                                </transformer>
+                            </transformers>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
         </plugins>
         <resources>
             <resource>
                 <directory>src/main/resources</directory>
                 <filtering>false</filtering>
+                <excludes>
+                    <exclude>ossfilebrowse-build.properties</exclude>
+                </excludes>
+            </resource>
+            <resource>
+                <directory>src/main/resources</directory>
+                <filtering>true</filtering>
+                <includes>
+                    <include>ossfilebrowse-build.properties</include>
+                </includes>
             </resource>
         </resources>
     </build>
