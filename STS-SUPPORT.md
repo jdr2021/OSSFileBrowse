@@ -30,20 +30,20 @@ Signature    = Base64(HMAC-SHA1(access_key, StringToSign))
 
 ## 新增能力
 
-### 1. 服务端点：ListBuckets 后选桶
+### 1. STS 凭证面板
+
+右侧「存储桶地址」下方新增可折叠面板，勾选后填入三要素即可启用。
+
+![STS 临时凭证面板](images/pr-sts-panel.png)
+
+### 2. 服务端点：ListBuckets 后选桶
 
 地址填 `https://oss-cn-hangzhou.aliyuncs.com/` 或 `/oss/`（无桶名）时，
 工具先调用 **ListBuckets**，再弹窗让你选择要浏览的存储桶。
 
-```
-┌──────────────────────────────────┐
-│ 选择存储桶                        │
-│ 该凭证可访问 11 个存储桶           │
-│ 存储桶： [bucket-a         ▼]    │
-└──────────────────────────────────┘
-```
+![选择存储桶](images/pr-list-buckets.png)
 
-### 2. 两种寻址方式都支持
+### 3. 两种寻址方式都支持
 
 ```text
 路径式：      https://endpoint/bucket/key
@@ -52,7 +52,7 @@ Signature    = Base64(HMAC-SHA1(access_key, StringToSign))
 
 工具会自动从 URL 推断桶名与对象 key，无需手工拆分。
 
-### 3. 动态签名覆盖所有请求
+### 4. 动态签名覆盖所有请求
 
 | 功能 | 说明 |
 |---|---|
@@ -64,7 +64,7 @@ Signature    = Base64(HMAC-SHA1(access_key, StringToSign))
 | 批量下载 | 每个对象现签 |
 | 内容搜索 | 每个目标对象现签 |
 
-### 4. 中文 / 特殊字符文件名
+### 5. 中文 / 特殊字符文件名
 
 签名使用**解码后的原始 key**，URL 传输时才编码：
 
@@ -74,10 +74,18 @@ String path = objectUri.getPath();   // 而非 getRawPath()
 
 否则 `中文.pptx` 这类文件名会因签名不匹配而返回 403。
 
-### 5. 下载完成提示
+### 6. 下载完成提示
 
 「下载选中文件」完成后弹出对话框，显示文件名、大小、保存位置，
 并提供「打开所在文件夹」按钮（Windows 资源管理器 / macOS Finder / Linux 文件管理器）。
+
+### 7. 批量下载选择目录
+
+「全部下载」先弹出目录选择框，完成后汇总显示文件数量、总大小与保存路径。
+
+![全部下载选择目录](images/pr-bulk-download-dir.png)
+
+![下载完成提示](images/pr-download-done.png)
 
 ---
 
