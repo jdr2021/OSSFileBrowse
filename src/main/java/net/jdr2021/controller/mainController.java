@@ -16,6 +16,7 @@ import javafx.scene.control.Button;
 import javafx.scene.control.ButtonBar;
 import javafx.scene.control.ButtonType;
 import javafx.scene.control.CheckBox;
+import javafx.stage.DirectoryChooser;
 import javafx.scene.control.ChoiceDialog;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.Dialog;
@@ -744,8 +745,26 @@ public class mainController {
         final Path workingDirectory = Paths.get(
                 System.getProperty("user.dir"))
                 .toAbsolutePath().normalize();
-        final Path downloadRoot = BucketArtifactPaths.downloadRoot(
+        final Path defaultRoot = BucketArtifactPaths.downloadRoot(
                 workingDirectory, activeListingUri);
+
+        // 自动测试环境无法弹出目录选择框，用系统属性跳过。
+        Path baseDir = null;
+        if (!Boolean.getBoolean("ossfilebrowse.bulkDownload.skipDirectoryChooser")) {
+            DirectoryChooser chooser = new DirectoryChooser();
+            chooser.setTitle("选择保存目录");
+            if (java.nio.file.Files.isDirectory(workingDirectory)) {
+                chooser.setInitialDirectory(workingDirectory.toFile());
+            }
+            File picked = chooser.showDialog(webView.getScene().getWindow());
+            if (picked == null) {
+                return;
+            }
+            baseDir = picked.toPath();
+        }
+        final Path downloadRoot = baseDir == null
+                ? defaultRoot
+                : BucketArtifactPaths.downloadRoot(baseDir, activeListingUri);
         final PreviewHttpServer server = previewServer;
 
         Task<BulkDownloadResult> task =
@@ -806,6 +825,7 @@ public class mainController {
             System.out.println("[全部下载] 完成：文件="
                     + result.completedFiles + "；目录="
                     + result.downloadRoot);
+            showBulkDownloadSuccessDialog(result.downloadRoot, result.completedFiles);
         });
         task.setOnFailed(event -> {
             if (bulkDownloadTask != task) {
@@ -3084,6 +3104,70 @@ public class mainController {
                 revealInExplorer(savedFile);
             }
         });
+    }
+
+    /** 批量下载完成提示，可打开目标目录。 */
+    private void showBulkDownloadSuccessDialog(final Path directory, int files) {
+        Alert alert = new Alert(Alert.AlertType.INFORMATION);
+        alert.setTitle("下载完成");
+        alert.setHeaderText("已保存 " + files + " 个文件");
+
+        StringBuilder body = new StringBuilder();
+        long bytes = 0;
+        try {
+            if (directory != null && java.nio.file.Files.isDirectory(directory)) {
+                java.util.stream.Stream<Path> walk = java.nio.file.Files.walk(directory);
+                try {
+                    bytes = walk.filter(java.nio.file.Files::isRegularFile)
+                            .mapToLong(path -> {
+                                try {
+                                    return java.nio.file.Files.size(path);
+                                } catch (Exception ignored) {
+                                    return 0L;
+                                }
+                            }).sum();
+                } finally {
+                    walk.close();
+                }
+            }
+        } catch (Exception ignored) {
+            // 统计失败不影响提示
+        }
+        if (bytes > 0) {
+            body.append("总大小：").append(formatBytesForDialog(bytes)).append(LF);
+        }
+        body.append("保存位置：").append(directory);
+        alert.setContentText(body.toString());
+
+        ButtonType openFolder = new ButtonType(
+                "打开文件夹", ButtonBar.ButtonData.OK_DONE);
+        ButtonType close = new ButtonType(
+                "关闭", ButtonBar.ButtonData.CANCEL_CLOSE);
+        alert.getButtonTypes().setAll(openFolder, close);
+        alert.showAndWait().ifPresent(choice -> {
+            if (choice == openFolder && directory != null) {
+                openDirectory(directory);
+            }
+        });
+    }
+
+    /** 打开目录本身（不选中文件）。 */
+    private static void openDirectory(Path directory) {
+        try {
+            String os = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
+            if (os.contains("win")) {
+                new ProcessBuilder("explorer.exe",
+                        directory.toAbsolutePath().toString()).start();
+            } else if (os.contains("mac")) {
+                new ProcessBuilder("open",
+                        directory.toAbsolutePath().toString()).start();
+            } else {
+                new ProcessBuilder("xdg-open",
+                        directory.toAbsolutePath().toString()).start();
+            }
+        } catch (Exception failure) {
+            RuntimeDiagnostics.logFailure("打开文件夹失败", failure);
+        }
     }
 
     private static String formatBytesForDialog(long bytes) {

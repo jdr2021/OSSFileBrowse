@@ -674,6 +674,8 @@ public class MainFxmlTest {
     @Test
     public void downloadsAllFilesIntoHostBackDirectoryWithObjectHierarchy()
             throws Exception {
+        // 无头测试环境无法弹出目录选择框，走默认下载目录
+        System.setProperty("ossfilebrowse.bulkDownload.skipDirectoryChooser", "true");
         HttpServer origin = HttpServer.create(
                 new InetSocketAddress("127.0.0.1", 0), 0);
         origin.createContext("/", MainFxmlTest::serveBulkDownloadFixture);
