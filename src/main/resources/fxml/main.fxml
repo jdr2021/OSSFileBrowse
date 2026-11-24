@@ -5,6 +5,9 @@
 <?import javafx.scene.control.CheckBox?>
 <?import javafx.scene.control.ComboBox?>
 <?import javafx.scene.control.Label?>
+<?import javafx.scene.control.TitledPane?>
+<?import javafx.scene.control.TextArea?>
+<?import javafx.scene.control.PasswordField?>
 <?import javafx.scene.control.Slider?>
 <?import javafx.scene.control.TextField?>
 <?import javafx.scene.control.TreeTableColumn?>
@@ -100,7 +103,29 @@
                   <Insets left="10.0" right="10.0" top="10.0" />
                </VBox.margin>
             </TextField>
-            <Button mnemonicParsing="false" onAction="#addCustomHeaderRow" prefHeight="30.0" prefWidth="180.0" text="添加自定义请求头">
+            <TitledPane fx:id="stsPane" expanded="false" text="STS 临时凭证（可选）">
+               <VBox.margin>
+                  <Insets left="10.0" right="10.0" top="8.0" />
+               </VBox.margin>
+               <content>
+                  <VBox spacing="6.0">
+                     <padding>
+                        <Insets bottom="8.0" left="6.0" right="6.0" top="8.0" />
+                     </padding>
+                     <children>
+                        <CheckBox fx:id="stsEnableCheckBox" mnemonicParsing="false" text="使用 STS 凭证签名请求" />
+                        <Label text="AccessKeyId" textFill="#555555" />
+                        <TextField fx:id="tf_sts_aid" promptText="STS.xxxxxxxx" />
+                        <Label text="AccessKeySecret" textFill="#555555" />
+                        <PasswordField fx:id="tf_sts_ak" promptText="access key secret" />
+                        <Label text="SecurityToken" textFill="#555555" />
+                        <TextArea fx:id="tf_sts_token" prefHeight="58.0" promptText="security token" wrapText="true" />
+                        <Label text="提示：签名与时间绑定，工具会在每次请求前自动重算。" style="-fx-font-size: 11px; -fx-text-fill: #888888;" />
+                     </children>
+                  </VBox>
+               </content>
+            </TitledPane>
+            <Button fx:id="addHeaderButton" mnemonicParsing="false" onAction="#addCustomHeaderRow" prefHeight="30.0" prefWidth="180.0" text="添加自定义请求头">
                <VBox.margin>
                   <Insets left="10.0" right="10.0" top="8.0" />
                </VBox.margin>

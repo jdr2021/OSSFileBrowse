@@ -174,6 +174,22 @@ public final class PreviewHttpServer implements Closeable {
         return register(remoteUrl, Collections.<String, String>emptyMap());
     }
 
+    /** 注册远程对象，每次转发时用 provider 重新生成请求头。 */
+    public RegisteredObject register(String remoteUrl,
+                                     Map<String, String> requestHeaders,
+                                     RemoteHeaderProvider provider) {
+        ensureRunning();
+        URL validatedUrl = validateRemoteUrl(remoteUrl);
+        Map<String, String> safeHeaders = sanitizeHeaders(requestHeaders);
+
+        String objectId;
+        RemoteObject object = new RemoteObject(validatedUrl, safeHeaders, provider);
+        do {
+            objectId = randomToken(18);
+        } while (objects.putIfAbsent(objectId, object) != null);
+        return new RegisteredObject(objectId, proxyUri(objectId, object));
+    }
+
     public boolean unregister(String objectId) {
         if (objectId == null) {
             return false;
@@ -406,7 +422,7 @@ public final class PreviewHttpServer implements Closeable {
                 connection.setRequestProperty("Accept-Encoding", "identity");
 
                 boolean sameOrigin = sameOrigin(original, current);
-                for (Map.Entry<String, String> header : object.headers.entrySet()) {
+                for (Map.Entry<String, String> header : object.effectiveHeaders().entrySet()) {
                     if (!sameOrigin && isSensitiveHeader(header.getKey())) {
                         continue;
                     }
@@ -1129,18 +1145,45 @@ public final class PreviewHttpServer implements Closeable {
         return java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
     }
 
+    /** 每次取头时重新生成，用于签名随时间变化的凭证。 */
+    public interface RemoteHeaderProvider {
+        Map<String, String> headersFor(URL remoteUrl);
+    }
+
     private static final class RemoteObject {
         private final URL url;
         private final Map<String, String> headers;
+        private final RemoteHeaderProvider headerProvider;
         private final String fileName;
 
         private RemoteObject(URL url, Map<String, String> headers) {
+            this(url, headers, null);
+        }
+
+        private RemoteObject(URL url, Map<String, String> headers,
+                             RemoteHeaderProvider provider) {
             this.url = url;
             this.headers = headers;
+            this.headerProvider = provider;
             String path = url.getPath() == null ? "" : url.getPath();
             int slash = path.lastIndexOf('/');
             String name = slash >= 0 ? path.substring(slash + 1) : path;
             this.fileName = name.isEmpty() ? "preview.bin" : name;
+        }
+
+        /** 返回本次转发应使用的请求头。 */
+        private Map<String, String> effectiveHeaders() {
+            if (headerProvider == null) {
+                return headers;
+            }
+            try {
+                Map<String, String> fresh = headerProvider.headersFor(url);
+                return fresh == null ? headers : fresh;
+            } catch (RuntimeException failure) {
+                System.out.println("[预览代理] 动态头生成失败，回退静态头："
+                        + failure.getMessage());
+                return headers;
+            }
         }
     }
 
