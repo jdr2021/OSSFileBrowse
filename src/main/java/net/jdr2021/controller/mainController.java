@@ -10,10 +10,14 @@ import javafx.event.ActionEvent;
 import javafx.fxml.FXML;
 import javafx.geometry.Insets;
 import javafx.scene.control.Alert;
+import javafx.scene.control.TextArea;
+import javafx.scene.control.PasswordField;
 import javafx.scene.control.Button;
 import javafx.scene.control.ButtonBar;
 import javafx.scene.control.ButtonType;
 import javafx.scene.control.CheckBox;
+import javafx.stage.DirectoryChooser;
+import javafx.scene.control.ChoiceDialog;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.Dialog;
 import javafx.scene.control.Label;
@@ -74,6 +78,8 @@ import net.jdr2021.utils.FfmpegSettings;
 import net.jdr2021.utils.KkFileViewSettings;
 import net.jdr2021.utils.PreviewSizeSettings;
 import net.jdr2021.utils.RequestHeaderPolicy;
+import net.jdr2021.utils.HttpUtils;
+import net.jdr2021.utils.StsSigner;
 import net.jdr2021.utils.RuntimeDiagnostics;
 import net.jdr2021.utils.TlsPolicy;
 
@@ -182,7 +188,22 @@ public class mainController {
             new IdentityHashMap<>();
     private final Set<String> allowedExtensions = loadAllowedExtensions();
 
+    /** 平台换行符，用于对话框多行文本。 */
+    private static final String LF = System.lineSeparator();
+
     private Map<String, String> activeRequestHeaders = Collections.emptyMap();
+
+    /** 当前生效的 STS 签名器；为 null 表示使用普通模式。 */
+    private StsSigner activeStsSigner;
+
+    @FXML
+    private CheckBox stsEnableCheckBox;
+    @FXML
+    private TextField tf_sts_aid;
+    @FXML
+    private PasswordField tf_sts_ak;
+    @FXML
+    private TextArea tf_sts_token;
     private URI activeListingUri;
     private PreviewHttpServer previewServer;
     private PreviewService previewService;
@@ -329,6 +350,25 @@ public class mainController {
         return activeRequestHeaders;
     }
 
+    /** 返回当前请求头；STS 模式下每次现签。 */
+    public Map<String, String> currentRequestHeaders() {
+        if (activeStsSigner == null) {
+            return activeRequestHeaders;
+        }
+        URI target = activeStsSigner.logicalListingUri(
+                activeListingUri == null ? URI.create(tf_oss_url.getText().trim()) : activeListingUri);
+        try {
+            return activeStsSigner.signForListing(target);
+        } catch (RuntimeException failure) {
+            System.out.println("[STS] 签名失败：" + failure.getMessage());
+            return activeRequestHeaders;
+        }
+    }
+
+    public boolean isStsMode() {
+        return activeStsSigner != null;
+    }
+
     private void loadSearchRules() {
         try {
             SearchRuleLoader.Result loaded =
@@ -394,7 +434,8 @@ public class mainController {
         final Map<String, String> headers =
                 Collections.unmodifiableMap(
                         new LinkedHashMap<String, String>(
-                                activeRequestHeaders));
+                                currentRequestHeaders()));
+        final StsSigner signerSnapshot = activeStsSigner;
         final Path workingDirectory = Paths.get(
                 System.getProperty("user.dir"))
                 .toAbsolutePath().normalize();
@@ -486,14 +527,44 @@ public class mainController {
             showAlert(Alert.AlertType.ERROR, "提示", null, "本机预览服务尚未就绪");
             return;
         }
-        final URI listingUri;
+        URI rawUri;
         final Map<String, String> headers;
+        final StsSigner signer;
         try {
-            listingUri = validateListingUri(tf_oss_url.getText());
-            headers = snapshotCustomRequestHeaders();
+            rawUri = validateListingUri(tf_oss_url.getText());
+            signer = buildStsSignerFromUi(rawUri);
         } catch (IllegalArgumentException e) {
             showAlert(Alert.AlertType.WARNING, "提示", null, e.getMessage());
             return;
+        }
+
+        // 填 /oss 或 /oss/ 时表示服务端点：先 ListBuckets，让用户选一个桶。
+        if (signer != null && StsSigner.isServiceEndpoint(rawUri)) {
+            rawUri = promptBucketSelection(rawUri, signer);
+            if (rawUri == null) {
+                setStatus("已取消：未选择存储桶");
+                return;
+            }
+            tf_oss_url.setText(rawUri.toString());
+        }
+
+        final URI listingUri = rawUri;
+        try {
+            headers = signer != null
+                    ? signer.signForListing(listingUri)
+                    : snapshotCustomRequestHeaders();
+        } catch (IllegalArgumentException e) {
+            showAlert(Alert.AlertType.WARNING, "提示", null, e.getMessage());
+            return;
+        }
+        // 记住本次使用的签名器，后续预览/下载都靠它现签。
+        activeStsSigner = signer;
+        final URI requestUri = signer != null
+                ? signer.logicalListingUri(listingUri)
+                : listingUri;
+        if (signer != null) {
+            System.out.println("[STS] 已启用临时凭证模式；桶="
+                    + StsSigner.resolveBucket(listingUri));
         }
         RuntimeDiagnostics.bindRequestLog(listingUri);
 
@@ -527,7 +598,7 @@ public class mainController {
             @Override
             protected PreparedBucket call() throws Exception {
                 BucketListing listing =
-                        new BucketClient().loadFirstPage(listingUri, headers);
+                        new BucketClient().loadFirstPage(requestUri, headers);
                 return prepareFiles(listingUri, listing);
             }
         };
@@ -628,6 +699,7 @@ public class mainController {
             downloadButton.setDisable(
                     activeRegisteredObject == null && activeArchiveEntry == null);
             setStatus("下载完成：" + targetPath.getFileName());
+            showDownloadSuccessDialog(targetPath);
         });
         task.setOnFailed(event -> {
             if (downloadTask != task) {
@@ -668,12 +740,31 @@ public class mainController {
         final Map<String, String> headers =
                 Collections.unmodifiableMap(
                         new LinkedHashMap<String, String>(
-                                activeRequestHeaders));
+                                currentRequestHeaders()));
+        final StsSigner signerSnapshot = activeStsSigner;
         final Path workingDirectory = Paths.get(
                 System.getProperty("user.dir"))
                 .toAbsolutePath().normalize();
-        final Path downloadRoot = BucketArtifactPaths.downloadRoot(
+        final Path defaultRoot = BucketArtifactPaths.downloadRoot(
                 workingDirectory, activeListingUri);
+
+        // 自动测试环境无法弹出目录选择框，用系统属性跳过。
+        Path baseDir = null;
+        if (!Boolean.getBoolean("ossfilebrowse.bulkDownload.skipDirectoryChooser")) {
+            DirectoryChooser chooser = new DirectoryChooser();
+            chooser.setTitle("选择保存目录");
+            if (java.nio.file.Files.isDirectory(workingDirectory)) {
+                chooser.setInitialDirectory(workingDirectory.toFile());
+            }
+            File picked = chooser.showDialog(webView.getScene().getWindow());
+            if (picked == null) {
+                return;
+            }
+            baseDir = picked.toPath();
+        }
+        final Path downloadRoot = baseDir == null
+                ? defaultRoot
+                : BucketArtifactPaths.downloadRoot(baseDir, activeListingUri);
         final PreviewHttpServer server = previewServer;
 
         Task<BulkDownloadResult> task =
@@ -694,7 +785,8 @@ public class mainController {
                                     + "/" + snapshot.size() + "："
                                     + entry.object.getKey());
                             RegisteredObject registered = server.register(
-                                    entry.uri.toASCIIString(), headers);
+                                    entry.uri.toASCIIString(), headers,
+                                    stsHeaderProvider(signerSnapshot));
                             try {
                                 downloadFromProxy(
                                         registered.getProxyUri().toURL(),
@@ -733,6 +825,7 @@ public class mainController {
             System.out.println("[全部下载] 完成：文件="
                     + result.completedFiles + "；目录="
                     + result.downloadRoot);
+            showBulkDownloadSuccessDialog(result.downloadRoot, result.completedFiles);
         });
         task.setOnFailed(event -> {
             if (bulkDownloadTask != task) {
@@ -1515,7 +1608,8 @@ public class mainController {
         final RegisteredObject registered;
         try {
             headers = snapshotCustomRequestHeaders();
-            registered = previewServer.register(entry.uri.toASCIIString(), headers);
+            registered = previewServer.register(entry.uri.toASCIIString(), headers,
+                    stsHeaderProvider(activeStsSigner));
         } catch (RuntimeException e) {
             setStatus("预览请求配置错误");
             loadErrorPage("预览请求配置错误", e);
@@ -2304,6 +2398,111 @@ public class mainController {
         return uri;
     }
 
+    /** 从界面输入构建签名器；未勾选 STS 时返回 null。 */
+    private StsSigner buildStsSignerFromUi(URI listingUri) {
+        if (stsEnableCheckBox == null || !stsEnableCheckBox.isSelected()) {
+            return null;
+        }
+        String aid = tf_sts_aid == null ? "" : tf_sts_aid.getText();
+        String ak = tf_sts_ak == null ? "" : tf_sts_ak.getText();
+        String token = tf_sts_token == null ? "" : tf_sts_token.getText();
+        if (isBlankText(aid) || isBlankText(ak) || isBlankText(token)) {
+            throw new IllegalArgumentException(
+                    "已勾选 STS，但 AccessKeyId / AccessKeySecret / SecurityToken 未填完整");
+        }
+        try {
+            StsSigner signer = new StsSigner(aid, ak, token);
+            // 服务端点（/oss）没有桶名，稍后会先 ListBuckets 再选桶，
+            // 因此这里不能提前做桶名解析。
+            if (!StsSigner.isServiceEndpoint(listingUri)) {
+                signer.signForListing(listingUri);
+            }
+            return signer;
+        } catch (IllegalArgumentException failure) {
+            throw new IllegalArgumentException(
+                    "STS 配置错误：" + failure.getMessage(), failure);
+        }
+    }
+
+    /** 为预览代理构造动态头提供者；普通模式返回 null。 */
+    private static PreviewHttpServer.RemoteHeaderProvider stsHeaderProvider(
+            final StsSigner signer) {
+        if (signer == null) {
+            return null;
+        }
+        return new PreviewHttpServer.RemoteHeaderProvider() {
+            @Override
+            public Map<String, String> headersFor(java.net.URL remoteUrl) {
+                try {
+                    return signer.signForObject(remoteUrl.toURI());
+                } catch (java.net.URISyntaxException failure) {
+                    throw new IllegalArgumentException(
+                            "对象地址无法解析：" + remoteUrl, failure);
+                }
+            }
+        };
+    }
+
+    /** 对服务端点执行 ListBuckets 并让用户选桶；取消或失败返回 null。 */
+    private URI promptBucketSelection(URI serviceUri, StsSigner signer) {
+        final List<String> buckets;
+        try {
+            buckets = listBucketsViaSts(serviceUri, signer);
+        } catch (Exception failure) {
+            RuntimeDiagnostics.logFailure("ListBuckets 失败", failure);
+            showAlert(Alert.AlertType.ERROR, "ListBuckets 失败", null,
+                    userMessage(failure));
+            return null;
+        }
+        if (buckets.isEmpty()) {
+            showAlert(Alert.AlertType.WARNING, "提示", null, "该账号下没有可访问的存储桶");
+            return null;
+        }
+        System.out.println("[STS] ListBuckets 返回 " + buckets.size() + " 个桶");
+
+        ChoiceDialog<String> dialog = new ChoiceDialog<>(buckets.get(0), buckets);
+        dialog.setTitle("选择存储桶");
+        dialog.setHeaderText("该凭证可访问 " + buckets.size() + " 个存储桶");
+        dialog.setContentText("存储桶：");
+        Optional<String> picked = dialog.showAndWait();
+        if (!picked.isPresent()) {
+            return null;
+        }
+        String bucket = picked.get();
+        String base = serviceUri.toString();
+        if (base.endsWith("/")) {
+            base = base.substring(0, base.length() - 1);
+        }
+        return URI.create(base + "/" + bucket);
+    }
+
+    /** 调用 OSS 服务端点列举全部桶。 */
+    private List<String> listBucketsViaSts(URI serviceUri, StsSigner signer)
+            throws Exception {
+        String body = new String(
+                HttpUtils.httpGetBytes(serviceUri.toASCIIString(), signer.signForService()),
+                java.nio.charset.StandardCharsets.UTF_8);
+        List<String> names = new ArrayList<>();
+        javax.xml.parsers.DocumentBuilderFactory factory =
+                javax.xml.parsers.DocumentBuilderFactory.newInstance();
+        factory.setFeature(
+                "http://apache.org/xml/features/disallow-doctype-decl", true);
+        org.w3c.dom.Document doc = factory.newDocumentBuilder()
+                .parse(new java.io.ByteArrayInputStream(body.getBytes("UTF-8")));
+        org.w3c.dom.NodeList nodes = doc.getElementsByTagName("Name");
+        for (int i = 0; i < nodes.getLength(); i++) {
+            String name = nodes.item(i).getTextContent();
+            if (name != null && !name.trim().isEmpty()) {
+                names.add(name.trim());
+            }
+        }
+        return names;
+    }
+
+    private static boolean isBlankText(String value) {
+        return value == null || value.trim().isEmpty();
+    }
+
     private Map<String, String> snapshotCustomRequestHeaders() {
         return Collections.unmodifiableMap(
                 new LinkedHashMap<>(collectCustomRequestHeaders()));
@@ -2871,6 +3070,136 @@ public class mainController {
         Thread thread = new Thread(task, threadName);
         thread.setDaemon(true);
         thread.start();
+    }
+
+    /** 下载完成提示，可打开所在文件夹。 */
+    private void showDownloadSuccessDialog(final Path savedFile) {
+        long bytes = -1;
+        try {
+            if (savedFile != null && java.nio.file.Files.exists(savedFile)) {
+                bytes = java.nio.file.Files.size(savedFile);
+            }
+        } catch (Exception ignored) {
+            // 大小读不到不影响主流程
+        }
+
+        Alert alert = new Alert(Alert.AlertType.INFORMATION);
+        alert.setTitle("下载完成");
+        alert.setHeaderText("文件已保存");
+        StringBuilder body = new StringBuilder();
+        body.append("文件名：").append(savedFile.getFileName()).append(LF);
+        if (bytes >= 0) {
+            body.append("大小：").append(formatBytesForDialog(bytes)).append(LF);
+        }
+        body.append("位置：").append(savedFile.toAbsolutePath().getParent());
+        alert.setContentText(body.toString());
+
+        ButtonType openFolder = new ButtonType(
+                "打开所在文件夹", ButtonBar.ButtonData.OK_DONE);
+        ButtonType close = new ButtonType(
+                "关闭", ButtonBar.ButtonData.CANCEL_CLOSE);
+        alert.getButtonTypes().setAll(openFolder, close);
+        alert.showAndWait().ifPresent(choice -> {
+            if (choice == openFolder) {
+                revealInExplorer(savedFile);
+            }
+        });
+    }
+
+    /** 批量下载完成提示，可打开目标目录。 */
+    private void showBulkDownloadSuccessDialog(final Path directory, int files) {
+        Alert alert = new Alert(Alert.AlertType.INFORMATION);
+        alert.setTitle("下载完成");
+        alert.setHeaderText("已保存 " + files + " 个文件");
+
+        StringBuilder body = new StringBuilder();
+        long bytes = 0;
+        try {
+            if (directory != null && java.nio.file.Files.isDirectory(directory)) {
+                java.util.stream.Stream<Path> walk = java.nio.file.Files.walk(directory);
+                try {
+                    bytes = walk.filter(java.nio.file.Files::isRegularFile)
+                            .mapToLong(path -> {
+                                try {
+                                    return java.nio.file.Files.size(path);
+                                } catch (Exception ignored) {
+                                    return 0L;
+                                }
+                            }).sum();
+                } finally {
+                    walk.close();
+                }
+            }
+        } catch (Exception ignored) {
+            // 统计失败不影响提示
+        }
+        if (bytes > 0) {
+            body.append("总大小：").append(formatBytesForDialog(bytes)).append(LF);
+        }
+        body.append("保存位置：").append(directory);
+        alert.setContentText(body.toString());
+
+        ButtonType openFolder = new ButtonType(
+                "打开文件夹", ButtonBar.ButtonData.OK_DONE);
+        ButtonType close = new ButtonType(
+                "关闭", ButtonBar.ButtonData.CANCEL_CLOSE);
+        alert.getButtonTypes().setAll(openFolder, close);
+        alert.showAndWait().ifPresent(choice -> {
+            if (choice == openFolder && directory != null) {
+                openDirectory(directory);
+            }
+        });
+    }
+
+    /** 打开目录本身（不选中文件）。 */
+    private static void openDirectory(Path directory) {
+        try {
+            String os = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
+            if (os.contains("win")) {
+                new ProcessBuilder("explorer.exe",
+                        directory.toAbsolutePath().toString()).start();
+            } else if (os.contains("mac")) {
+                new ProcessBuilder("open",
+                        directory.toAbsolutePath().toString()).start();
+            } else {
+                new ProcessBuilder("xdg-open",
+                        directory.toAbsolutePath().toString()).start();
+            }
+        } catch (Exception failure) {
+            RuntimeDiagnostics.logFailure("打开文件夹失败", failure);
+        }
+    }
+
+    private static String formatBytesForDialog(long bytes) {
+        if (bytes >= 1024L * 1024 * 1024) {
+            return String.format("%.2f GB", bytes / 1024.0 / 1024 / 1024);
+        }
+        if (bytes >= 1024L * 1024) {
+            return String.format("%.2f MB", bytes / 1024.0 / 1024);
+        }
+        if (bytes >= 1024L) {
+            return String.format("%.1f KB", bytes / 1024.0);
+        }
+        return bytes + " 字节";
+    }
+
+    /** 在系统文件管理器中选中文件。 */
+    private static void revealInExplorer(Path file) {
+        try {
+            String os = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
+            if (os.contains("win")) {
+                new ProcessBuilder("explorer.exe", "/select,"
+                        + file.toAbsolutePath()).start();
+            } else if (os.contains("mac")) {
+                new ProcessBuilder("open", "-R",
+                        file.toAbsolutePath().toString()).start();
+            } else {
+                new ProcessBuilder("xdg-open",
+                        file.toAbsolutePath().getParent().toString()).start();
+            }
+        } catch (Exception failure) {
+            RuntimeDiagnostics.logFailure("打开文件夹失败", failure);
+        }
     }
 
     public static void showAlert(Alert.AlertType type,

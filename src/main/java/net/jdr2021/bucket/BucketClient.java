@@ -20,6 +20,11 @@ public final class BucketClient {
     public static final int DEFAULT_MAX_PAGES = 100;
     public static final int DEFAULT_MAX_OBJECTS = 200_000;
 
+    /** 每次请求前生成请求头，用于签名随时间变化的凭证（如 STS）。 */
+    public interface HeaderProvider {
+        Map<String, String> headers();
+    }
+
     private final int maxPages;
     private final int maxObjects;
 
@@ -39,6 +44,12 @@ public final class BucketClient {
      * Performs exactly one HTTP request and returns every {@code Contents}
      * element carried by that response.
      */
+    public BucketListing loadFirstPage(URI listingUri, HeaderProvider provider)
+            throws IOException {
+        return loadFirstPage(listingUri,
+                provider == null ? null : provider.headers());
+    }
+
     public BucketListing loadFirstPage(URI listingUri,
                                        Map<String, String> requestHeaders)
             throws IOException {
@@ -49,6 +60,43 @@ public final class BucketClient {
         BucketListing listing = BucketListingParser.parse(xml);
         logPageSummary(listing);
         return listing;
+    }
+
+    /** 逐页列举，每页开始前重新生成请求头。 */
+    public BucketListing loadAll(URI listingUri, HeaderProvider provider)
+            throws IOException {
+        validateListingUri(listingUri);
+        if (provider == null) {
+            return loadAll(listingUri, (Map<String, String>) null);
+        }
+
+        String bucketName = null;
+        String prefix = null;
+        LinkedHashMap<String, BucketObject> uniqueObjects = new LinkedHashMap<>();
+        URI current = listingUri;
+        for (int pageNumber = 1; pageNumber <= maxPages; pageNumber++) {
+            Map<String, String> headers = snapshotHeaders(provider.headers());
+            BucketListing page = BucketListingParser.parse(
+                    HttpUtils.httpGet(current.toASCIIString(), headers));
+            logPageSummary(page);
+            if (bucketName == null) {
+                bucketName = page.getName();
+                prefix = page.getPrefix();
+            }
+            for (BucketObject object : page.getObjects()) {
+                uniqueObjects.put(object.getKey(), object);
+                if (uniqueObjects.size() > maxObjects) {
+                    throw new IOException("存储桶对象数量超过 " + maxObjects + " 条上限");
+                }
+            }
+            if (!page.isTruncated()) {
+                List<BucketObject> objects = new ArrayList<>(uniqueObjects.values());
+                return new BucketListing(bucketName, prefix, false,
+                        null, null, objects);
+            }
+            current = BucketPageRequestBuilder.nextPage(current, page);
+        }
+        throw new IOException("存储桶分页超过 " + maxPages + " 页上限");
     }
 
     public BucketListing loadAll(URI listingUri, Map<String, String> requestHeaders)

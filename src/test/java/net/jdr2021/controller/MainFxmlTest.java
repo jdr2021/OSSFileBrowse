@@ -140,8 +140,9 @@ public class MainFxmlTest {
             assertTrue(!mainController.usesNativeMedia(PreviewFormat.IMAGE));
 
             TextField bucketUrl = (TextField) root.lookup("#tf_oss_url");
-            Button addHeader = (Button) controlColumn.getChildren().get(
-                    controlColumn.getChildren().indexOf(bucketUrl) + 1);
+            // 按 fx:id 定位，避免布局调整（例如插入 STS 面板）后位置索引失效。
+            Button addHeader = (Button) root.lookup("#addHeaderButton");
+            assertNotNull(addHeader);
             assertEquals("添加自定义请求头", addHeader.getText());
 
             VBox headerRows = (VBox) root.lookup("#customHeadersBox");
@@ -673,6 +674,8 @@ public class MainFxmlTest {
     @Test
     public void downloadsAllFilesIntoHostBackDirectoryWithObjectHierarchy()
             throws Exception {
+        // 无头测试环境无法弹出目录选择框，走默认下载目录
+        System.setProperty("ossfilebrowse.bulkDownload.skipDirectoryChooser", "true");
         HttpServer origin = HttpServer.create(
                 new InetSocketAddress("127.0.0.1", 0), 0);
         origin.createContext("/", MainFxmlTest::serveBulkDownloadFixture);
